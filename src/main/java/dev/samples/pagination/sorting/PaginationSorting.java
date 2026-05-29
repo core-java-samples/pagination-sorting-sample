@@ -4,75 +4,48 @@ import java.util.*;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-// ======================================================
-// DOMAIN
-// ======================================================
-record Customer(long id, String name) {}
+record Owner(Long id, String name) {}
 
-// ======================================================
-// PAGINATION RESULT
-// ======================================================
-record Page<T>(List<T> content, int page, int size, long total) {}
-
-// ======================================================
-// PAGE REQUEST + SORTING
-// ======================================================
-record Pageable(int page, int size, Comparator<Customer> sort) {
-
-	int offset() { return page * size;}
+interface OwnerRepository {
+	Page<Owner> findAll(Pageable<Owner> pageable);
 }
 
-// ======================================================
-// REPOSITORY
-// ======================================================
-class CustomerRepository {
+record Pageable<T>(int page, int size, Comparator<T> sort) {}
 
-	Page<Customer> findAll(Pageable pageable) {
+record Page<T>(List<T> content, int page, int size, long total) {}
 
-		// копируем данные чтобы можно было сортировать
-		List<Customer> all =
-				new ArrayList<>(FakeCustomerTable.DATA);
+class FakeOwnerRepository implements OwnerRepository {
 
-		// сортировка ДО пагинации
-		all.sort(pageable.sort());
+	private final Map<Long, Owner> owners = new LinkedHashMap<>();
 
-		int start = pageable.offset();
-		int end = Math.min(start + pageable.size(), all.size());
+	public FakeOwnerRepository() {
+		owners.put(1L, new Owner(1L, "jack1"));
+		owners.put(2L, new Owner(2L, "jack2"));
+		owners.put(3L, new Owner(3L, "jack3"));
+		owners.put(4L, new Owner(4L, "jack4"));
+		owners.put(5L, new Owner(5L, "jack5"));
+	}
 
-		List<Customer> content;
+	@Override
+	public Page<Owner> findAll(Pageable pageable) {
 
-		if (start >= all.size()) {
-			content = List.of();
-		} else {
-			content = all.subList(start, end);
-		}
+		List<Owner> content;
+		List<Owner> all = new ArrayList<>(owners.values());
 
-		return new Page<>(
-				content,
-				pageable.page(),
-				pageable.size(),
-				all.size()
-		);
+		if (pageable.sort() != null) all.sort(pageable.sort());
+
+		long total = all.size(); // <- Дополнительный запрос SQL JDBC
+
+		long offset = pageable.page() * pageable.size(); // start
+		long limit = Math.min(offset + pageable.size(), total); // end
+
+		if (offset >= total) content = List.of();
+		else content = List.copyOf(all.subList((int) offset, (int) limit));
+
+		return new Page<>(content, pageable.page(), pageable.size(), total);
 	}
 }
 
-// ======================================================
-// FAKE DATABASE
-// ======================================================
-class FakeCustomerTable {
-
-	static final List<Customer> DATA = List.of(
-			new Customer(3, "Charlie"),
-			new Customer(1, "Alice"),
-			new Customer(5, "Eve"),
-			new Customer(2, "Bob"),
-			new Customer(4, "Diana")
-	);
-}
-
-// ======================================================
-// MAIN
-// ======================================================
 @SpringBootApplication
 public class PaginationSorting {
 	public static void main(String[] args) {
@@ -80,18 +53,18 @@ public class PaginationSorting {
 		new PaginationSorting().demo();
 	}
 	void demo() {
-		CustomerRepository repo = new CustomerRepository();
+		OwnerRepository repository = new FakeOwnerRepository();
 
-		// сортировка по имени
-		Pageable byName =
-				new Pageable(0, 3, Comparator.comparing(Customer::name));
+		System.out.println(
+				repository.findAll(
+						new Pageable<>(
+								0, 2, Comparator.comparing(Owner::id).reversed()
+						)
+				)
+		);
 
-		// сортировка по id DESC
-		Pageable byIdDesc =
-				new Pageable(0, 3, Comparator.comparing(Customer::id).reversed());
-
-		System.out.println(repo.findAll(byName));
 		System.out.println();
-		System.out.println(repo.findAll(byIdDesc));
+
+		System.out.println(repository.findAll(new Pageable<>(0, 2, null)));
 	}
 }
